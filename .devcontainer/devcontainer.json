@@ -6,6 +6,8 @@
     "forwardPorts": [
         8090
     ],
+    "postCreateCommand": "bash -e scripts/setup.sh",
+    "postStartCommand": "bash -e scripts/install-packages.sh",
     "customizations": {
         "vscode": {
             "extensions": [
