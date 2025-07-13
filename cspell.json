@@ -1,0 +1,17 @@
+{
+    "version": "0.2",
+    "ignorePaths": [],
+    "dictionaryDefinitions": [],
+    "dictionaries": [],
+    "words": [
+        "ASGI",
+        "dotenv",
+        "levelname",
+        "ndarray",
+        "newaxis",
+        "openml",
+        "Rieger"
+    ],
+    "ignoreWords": [],
+    "import": []
+}
