@@ -4,21 +4,16 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
         {
-            "name": "Python: run FastAPI [meta_learning_mvp]",
+            "name": "Python: Meta-Learning CLI [Interactive]",
             "type": "debugpy",
             "request": "launch",
             "justMyCode": true,
-            "module": "uvicorn",
+            "program": "${workspaceFolder}/cli.py",
             "cwd": "${workspaceFolder}",
-            "args": [
-                "app.app:app",
-                "--reload",
-                "--port",
-                "8090"
-            ],
-            "envFile": "${workspaceFolder}/.env"
+            "args": [],
+            "envFile": "${workspaceFolder}/.env",
+            "console": "integratedTerminal"
         }
     ]
 }

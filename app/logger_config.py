@@ -3,8 +3,8 @@
 import logging
 import time
 import uuid
-from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator
+from contextlib import contextmanager
+from typing import Generator
 
 from app.config.config import settings
 
@@ -20,14 +20,22 @@ def setup_logger() -> None:
             Exception: %s""",
             ex,
         )
+
+    # Configure logging with a better format for CLI
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     logger: logging.Logger = logging.getLogger()
     logger.setLevel(log_level)
 
 
-@asynccontextmanager
-async def logger_context(
+@contextmanager
+def logger_context(
     message: str, log_level: int = logging.INFO
-) -> AsyncGenerator[None, Any]:
+) -> Generator[None, None, None]:
     """Add logger context."""
     logger = logging.getLogger()
     is_enabled = logger.isEnabledFor(log_level)
