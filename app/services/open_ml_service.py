@@ -54,7 +54,7 @@ class OpenMLService:
             self.console.print(f"❌ Error saving configuration: {e}", style="bold red")
             return False
 
-3    def add_dataset(self, dataset_id: int) -> None:
+    def add_dataset(self, dataset_id: int) -> None:
         """
         Add a dataset to the configuration by fetching its information from OpenML API
         and automatically analyzing its structure to create column specifications

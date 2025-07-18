@@ -11,7 +11,7 @@ from typing import Optional
 import click
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Confirm, IntPrompt
+from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.text import Text
 
 from app.config.config import settings
@@ -69,8 +69,7 @@ class MetaLearningCLI:
         menu_text.append("2. 🔧 Show OpenML Configuration\n", style="cyan")
         menu_text.append("3. ➕ Add Dataset from OpenML\n", style="green")
         menu_text.append("4. ➖ Delete Dataset from Configuration\n", style="yellow")
-        menu_text.append("5. 📋 List All Configured Datasets\n", style="blue")
-        menu_text.append("6. ❌ Exit\n", style="red")
+        menu_text.append("5. ❌ Exit\n", style="red")
         
         
         panel = Panel(
@@ -104,7 +103,7 @@ class MetaLearningCLI:
         """Handle deleting a dataset from configuration"""
         try:
             self.console.print("➖ Delete Dataset from Configuration", style="bold yellow")
-            self.console.print("Enter the dataset ID you want to remove from your configuration.", style="italic")
+            self.console.print("Enter the dataset name you want to remove from your configuration.", style="italic")
             self.console.print()
             
             # First show current datasets
@@ -114,15 +113,15 @@ class MetaLearningCLI:
             if not Confirm.ask("Do you want to proceed with deleting a dataset?", default=True):
                 return
             
-            dataset_id = IntPrompt.ask("Dataset ID to delete")
+            dataset_name = Prompt.ask("Dataset name to delete")
             
-            if dataset_id <= 0:
-                self.console.print("❌ Invalid dataset ID. Must be a positive integer.", style="bold red")
+            if not isinstance(dataset_name, str):
+                self.console.print("❌ Invalid dataset name. Must be a string.", style="bold red")
                 return
             
             # Confirm deletion
-            if Confirm.ask(f"Are you sure you want to delete dataset {dataset_id} from configuration?", default=False):
-                self.open_ml_service.delete_dataset(dataset_id)
+            if Confirm.ask(f"Are you sure you want to delete dataset {dataset_name} from configuration?", default=False):
+                self.open_ml_service.delete_dataset(dataset_name)
             else:
                 self.console.print("❌ Deletion cancelled.", style="yellow")
                 
@@ -140,7 +139,7 @@ class MetaLearningCLI:
             try:
                 choice = IntPrompt.ask(
                     "Select an option",
-                    choices=["1", "2", "3", "4", "5", "6"],
+                    choices=["1", "2", "3", "4", "5"],
                     default=1
                 )
                 
@@ -155,8 +154,6 @@ class MetaLearningCLI:
                 elif choice == 4:
                     self._handle_delete_dataset()
                 elif choice == 5:
-                    self.open_ml_service.list_datasets()
-                elif choice == 6:
                     self.console.print("👋 Goodbye! Thanks for using Meta-Learning MVP!", style="bold blue")
                     break
                 
