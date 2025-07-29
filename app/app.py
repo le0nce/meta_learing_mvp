@@ -16,8 +16,8 @@ from rich.text import Text
 
 from app.config.config import settings
 from app.logger_config import setup_logger
-from app.services import KnowledgeBuilderService
-from app.services import OpenMLService
+from app.services.knowledge_builder_service import KnowledgeBuilderService
+from app.database.models import KnowledgeBaseRepository
 
 
 console = Console()
@@ -41,10 +41,9 @@ class MetaLearningCLI:
     
     def __init__(self):
         self.console = Console()
-        # Dependency injection: inject console into service
-        self.knowledge_builder = KnowledgeBuilderService(self.console)
-        self.open_ml_service = OpenMLService(self.console)
-    
+        self.knowledge_builder_service = KnowledgeBuilderService()
+        self.repository = KnowledgeBaseRepository()
+
     def show_welcome(self) -> None:
         """Show welcome message and application info"""
         welcome_text = Text()
@@ -63,14 +62,18 @@ class MetaLearningCLI:
     
     def show_menu(self) -> None:
         """Display the main menu options"""
+        # Get knowledge base stats
+        stats = self.knowledge_builder_service.get_knowledge_base_stats()
+        
         menu_text = Text()
         menu_text.append("Available Actions:\n\n", style="bold")
-        menu_text.append("1. 📊 Build Meta-Knowledge-Base\n", style="cyan")
-        menu_text.append("2. 🔧 Show OpenML Configuration\n", style="cyan")
-        menu_text.append("3. ➕ Add Dataset from OpenML\n", style="green")
-        menu_text.append("4. ➖ Delete Dataset from Configuration\n", style="yellow")
-        menu_text.append("5. ❌ Exit\n", style="red")
+        menu_text.append("1. 🔄 Update Knowledge Base manually\n", style="cyan")
+        menu_text.append("2. ❌ Exit\n", style="red")
         
+        if stats:
+            menu_text.append(f"\nCurrent Knowledge Base:\n", style="bold dim")
+            menu_text.append(f"  • Total entries: {stats.get('total_entries', 0)}\n", style="dim")
+            menu_text.append(f"  • Average accuracy: {stats.get('average_accuracy', 0):.3f}\n", style="dim")
         
         panel = Panel(
             menu_text,
@@ -79,54 +82,6 @@ class MetaLearningCLI:
             padding=(1, 2)
         )
         self.console.print(panel)
-    
-    def _handle_add_dataset(self) -> None:
-        """Handle adding a dataset from OpenML"""
-        try:
-            self.console.print("➕ Add Dataset from OpenML", style="bold green")
-            self.console.print("Enter the OpenML dataset ID you want to add to your configuration.", style="italic")
-            self.console.print("You can find dataset IDs at: https://www.openml.org/search?type=data", style="dim")
-            self.console.print()
-            
-            dataset_id = IntPrompt.ask("OpenML Dataset ID")
-            
-            if dataset_id <= 0:
-                self.console.print("❌ Invalid dataset ID. Must be a positive integer.", style="bold red")
-                return
-            
-            self.open_ml_service.add_dataset(dataset_id)
-            
-        except Exception as e:
-            self.console.print(f"❌ Error: {e}", style="bold red")
-    
-    def _handle_delete_dataset(self) -> None:
-        """Handle deleting a dataset from configuration"""
-        try:
-            self.console.print("➖ Delete Dataset from Configuration", style="bold yellow")
-            self.console.print("Enter the dataset name you want to remove from your configuration.", style="italic")
-            self.console.print()
-            
-            # First show current datasets
-            self.open_ml_service.list_datasets()
-            self.console.print()
-            
-            if not Confirm.ask("Do you want to proceed with deleting a dataset?", default=True):
-                return
-            
-            dataset_name = Prompt.ask("Dataset name to delete")
-            
-            if not isinstance(dataset_name, str):
-                self.console.print("❌ Invalid dataset name. Must be a string.", style="bold red")
-                return
-            
-            # Confirm deletion
-            if Confirm.ask(f"Are you sure you want to delete dataset {dataset_name} from configuration?", default=False):
-                self.open_ml_service.delete_dataset(dataset_name)
-            else:
-                self.console.print("❌ Deletion cancelled.", style="yellow")
-                
-        except Exception as e:
-            self.console.print(f"❌ Error: {e}", style="bold red")
 
     def run(self) -> None:
         """Main application loop"""
@@ -139,31 +94,20 @@ class MetaLearningCLI:
             try:
                 choice = IntPrompt.ask(
                     "Select an option",
-                    choices=["1", "2", "3", "4", "5"],
+                    choices=["1", "2"],
                     default=1
                 )
                 
                 self.console.print()
                 
                 if choice == 1:
-                    self.knowledge_builder.build_meta_knowledge_base()
+                    self.console.print("🔄 Updating knowledge base...", style="bold yellow")
+                    self.knowledge_builder_service.update_knowledge_base()
+                    self.console.print("✅ Knowledge base updated successfully!", style="bold green")
                 elif choice == 2:
-                    self.open_ml_service.show_open_ml_config()
-                elif choice == 3:
-                    self._handle_add_dataset()
-                elif choice == 4:
-                    self._handle_delete_dataset()
-                elif choice == 5:
                     self.console.print("👋 Goodbye! Thanks for using Meta-Learning MVP!", style="bold blue")
                     break
-                
-                # Ask if user wants to continue
-                if choice != "exit":
-                    if not Confirm.ask("\nWould you like to perform another action?", default=True):
-                        self.console.print("👋 Goodbye! Thanks for using Meta-Learning MVP!", style="bold blue")
-                        break
-                    self.console.clear()
-                    self.show_welcome()
+                    
                     
             except KeyboardInterrupt:
                 self.console.print("\n\n👋 Goodbye! Thanks for using Meta-Learning MVP!", style="bold blue")
