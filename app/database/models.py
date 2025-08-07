@@ -15,10 +15,16 @@ from app.database.connection import DatabaseConnection
 @dataclass
 class KnowledgeBaseEntry:
     """Data model for knowledge base entries"""
-    meta_vector: List[float]
-    open_ml_run_id: int
-    open_ml_flow_name: str
-    accuracy: float
+    run_id: int
+    task_id: int
+    setup_id: int
+    flow_id: int
+    flow_name: str
+    data_id: int
+    data_name: str
+    eval_metric: str
+    eval_value: float
+    meta_vector: Optional[List[float]] = None  # Latent space vector representation can be calculated later for performance reasons
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -27,10 +33,16 @@ class KnowledgeBaseEntry:
         """Convert to dictionary representation"""
         return {
             'id': self.id,
+            'run_id': self.run_id,
+            'task_id': self.task_id,
+            'setup_id': self.setup_id,
+            'flow_id': self.flow_id,
+            'flow_name': self.flow_name,
+            'data_id': self.data_id,
+            'data_name': self.data_name,
+            'eval_metric': self.eval_metric,
+            'eval_value': self.eval_value,
             'meta_vector': self.meta_vector,
-            'open_ml_run_id': self.open_ml_run_id,
-            'open_ml_flow_name': self.open_ml_flow_name,
-            'accuracy': self.accuracy,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -66,85 +78,30 @@ class KnowledgeBaseRepository:
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Serialize meta_vector as JSON
-                meta_vector_json = json.dumps(entry.meta_vector)
+                # Serialize meta_vector as JSON if it exists
+                meta_vector_json = json.dumps(entry.meta_vector) if entry.meta_vector else None
                 
                 cursor.execute("""
                     INSERT INTO knowledge_base 
-                    (meta_vector, open_ml_run_id, open_ml_flow_name, accuracy)
-                    VALUES (?, ?, ?, ?)
-                """, (meta_vector_json, entry.open_ml_run_id, entry.open_ml_flow_name, entry.accuracy))
+                    (run_id, task_id, setup_id, flow_id, flow_name, data_id, data_name, 
+                     eval_metric, eval_value, meta_vector)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (entry.run_id, entry.task_id, entry.setup_id, entry.flow_id, 
+                      entry.flow_name, entry.data_id, entry.data_name, entry.eval_metric,
+                      entry.eval_value, meta_vector_json))
                 
                 conn.commit()
                 entry_id = cursor.lastrowid
                 
                 self.logger.info(
-                    "Inserted knowledge base entry with ID %s (run_id: %s, flow: %s)", 
-                    entry_id, entry.open_ml_run_id, entry.open_ml_flow_name
+                    "Inserted knowledge base entry with ID %s (run_id: %s, flow: %s, eval_value: %s)", 
+                    entry_id, entry.run_id, entry.flow_name, entry.eval_value
                 )
                 
                 return entry_id
                 
         except sqlite3.Error as e:
             self.logger.error("Failed to insert knowledge base entry: %s", e)
-            raise
-    
-    def get_by_id(self, entry_id: int) -> Optional[KnowledgeBaseEntry]:
-        """
-        Get knowledge base entry by ID
-        
-        Args:
-            entry_id: ID of the entry to retrieve
-            
-        Returns:
-            KnowledgeBaseEntry if found, None otherwise
-        """
-        try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, meta_vector, open_ml_run_id, open_ml_flow_name, 
-                           accuracy, created_at, updated_at
-                    FROM knowledge_base 
-                    WHERE id = ?
-                """, (entry_id,))
-                
-                row = cursor.fetchone()
-                if row:
-                    return self._row_to_entry(row)
-                return None
-                
-        except sqlite3.Error as e:
-            self.logger.error("Failed to get knowledge base entry by ID %s: %s", entry_id, e)
-            raise
-    
-    def get_by_run_id(self, run_id: int) -> Optional[KnowledgeBaseEntry]:
-        """
-        Get knowledge base entry by OpenML run ID
-        
-        Args:
-            run_id: OpenML run ID
-            
-        Returns:
-            KnowledgeBaseEntry if found, None otherwise
-        """
-        try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, meta_vector, open_ml_run_id, open_ml_flow_name, 
-                           accuracy, created_at, updated_at
-                    FROM knowledge_base 
-                    WHERE open_ml_run_id = ?
-                """, (run_id,))
-                
-                row = cursor.fetchone()
-                if row:
-                    return self._row_to_entry(row)
-                return None
-                
-        except sqlite3.Error as e:
-            self.logger.error("Failed to get knowledge base entry by run ID %s: %s", run_id, e)
             raise
     
     def get_all(self, limit: Optional[int] = None, offset: int = 0) -> List[KnowledgeBaseEntry]:
@@ -163,8 +120,9 @@ class KnowledgeBaseRepository:
                 cursor = conn.cursor()
                 
                 query = """
-                    SELECT id, meta_vector, open_ml_run_id, open_ml_flow_name, 
-                           accuracy, created_at, updated_at
+                    SELECT id, run_id, task_id, setup_id, flow_id, flow_name, 
+                           data_id, data_name, eval_metric, eval_value, meta_vector,
+                           created_at, updated_at
                     FROM knowledge_base 
                     ORDER BY created_at DESC
                 """
@@ -182,104 +140,3 @@ class KnowledgeBaseRepository:
         except sqlite3.Error as e:
             self.logger.error("Failed to get knowledge base entries: %s", e)
             raise
-    
-    def get_by_accuracy_range(self, min_accuracy: float, max_accuracy: float) -> List[KnowledgeBaseEntry]:
-        """
-        Get entries within accuracy range
-        
-        Args:
-            min_accuracy: Minimum accuracy threshold
-            max_accuracy: Maximum accuracy threshold
-            
-        Returns:
-            List of knowledge base entries
-        """
-        try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, meta_vector, open_ml_run_id, open_ml_flow_name, 
-                           accuracy, created_at, updated_at
-                    FROM knowledge_base 
-                    WHERE accuracy BETWEEN ? AND ?
-                    ORDER BY accuracy DESC
-                """, (min_accuracy, max_accuracy))
-                
-                rows = cursor.fetchall()
-                return [self._row_to_entry(row) for row in rows]
-                
-        except sqlite3.Error as e:
-            self.logger.error("Failed to get entries by accuracy range: %s", e)
-            raise
-    
-    def count_entries(self) -> int:
-        """
-        Get total count of knowledge base entries
-        
-        Returns:
-            int: Total number of entries
-        """
-        try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM knowledge_base")
-                return cursor.fetchone()[0]
-                
-        except sqlite3.Error as e:
-            self.logger.error("Failed to count knowledge base entries: %s", e)
-            raise
-    
-    def delete_by_id(self, entry_id: int) -> bool:
-        """
-        Delete knowledge base entry by ID
-        
-        Args:
-            entry_id: ID of the entry to delete
-            
-        Returns:
-            bool: True if entry was deleted, False if not found
-        """
-        try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM knowledge_base WHERE id = ?", (entry_id,))
-                conn.commit()
-                
-                deleted = cursor.rowcount > 0
-                if deleted:
-                    self.logger.info("Deleted knowledge base entry with ID %s", entry_id)
-                else:
-                    self.logger.warning("No knowledge base entry found with ID %s", entry_id)
-                    
-                return deleted
-                
-        except sqlite3.Error as e:
-            self.logger.error("Failed to delete knowledge base entry: %s", e)
-            raise
-    
-    def _row_to_entry(self, row) -> KnowledgeBaseEntry:
-        """
-        Convert database row to KnowledgeBaseEntry
-        
-        Args:
-            row: Database row
-            
-        Returns:
-            KnowledgeBaseEntry instance
-        """
-        # Parse meta_vector from JSON
-        meta_vector = json.loads(row['meta_vector'])
-        
-        # Parse timestamps
-        created_at = datetime.fromisoformat(row['created_at']) if row['created_at'] else None
-        updated_at = datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None
-        
-        return KnowledgeBaseEntry(
-            id=row['id'],
-            meta_vector=meta_vector,
-            open_ml_run_id=row['open_ml_run_id'],
-            open_ml_flow_name=row['open_ml_flow_name'],
-            accuracy=row['accuracy'],
-            created_at=created_at,
-            updated_at=updated_at
-        )

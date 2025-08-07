@@ -49,10 +49,16 @@ class DatabaseConnection:
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS knowledge_base (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        meta_vector TEXT NOT NULL,  -- JSON serialized vector
-                        open_ml_run_id INTEGER NOT NULL,
-                        open_ml_flow_name TEXT NOT NULL,
-                        accuracy REAL NOT NULL,
+                        run_id INTEGER NOT NULL,
+                        task_id INTEGER NOT NULL,
+                        setup_id INTEGER NOT NULL,
+                        flow_id INTEGER NOT NULL,
+                        flow_name TEXT NOT NULL,
+                        data_id INTEGER NOT NULL,
+                        data_name TEXT NOT NULL,
+                        eval_metric TEXT NOT NULL,
+                        eval_value REAL NOT NULL,
+                        meta_vector TEXT,  -- JSON serialized vector, optional
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -60,13 +66,28 @@ class DatabaseConnection:
                 
                 # Create index for faster lookups
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_open_ml_run_id 
-                    ON knowledge_base(open_ml_run_id)
+                    CREATE INDEX IF NOT EXISTS idx_run_id 
+                    ON knowledge_base(run_id)
                 """)
                 
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_accuracy 
-                    ON knowledge_base(accuracy)
+                    CREATE INDEX IF NOT EXISTS idx_task_id 
+                    ON knowledge_base(task_id)
+                """)
+                
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_flow_id 
+                    ON knowledge_base(flow_id)
+                """)
+                
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_data_id 
+                    ON knowledge_base(data_id)
+                """)
+                
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_eval_value 
+                    ON knowledge_base(eval_value)
                 """)
                 
                 # Create trigger to update updated_at timestamp
