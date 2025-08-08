@@ -198,10 +198,10 @@ class MetaLearningCLI:
         metric_list = []
         for metric_name, metric_value in entry.metrics.items():
             metric_list.append(f"{metric_name}: {metric_value:.4f}")
-        
+
         # Join all metrics with newlines for display
         metrics_display = "\n".join(metric_list)
-        
+
         # For the table display, we'll show a summary
         num_metrics = len(entry.metrics)
         if num_metrics == 1:
@@ -212,19 +212,19 @@ class MetaLearningCLI:
             # If multiple metrics, show count and primary metric
             preferred_metrics = [
                 "predictive_accuracy",
-                "area_under_roc_curve", 
+                "area_under_roc_curve",
                 "f_measure",
             ]
-            
+
             primary_metric = None
             for pref_metric in preferred_metrics:
                 if pref_metric in entry.metrics:
                     primary_metric = pref_metric
                     break
-            
+
             if not primary_metric:
                 primary_metric = next(iter(entry.metrics.keys()))
-            
+
             return f"({num_metrics} metrics)", f"{entry.metrics[primary_metric]:.4f}"
 
     def _show_pagination_controls(self, current_page: int, total_pages: int):

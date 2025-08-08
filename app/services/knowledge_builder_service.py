@@ -10,7 +10,13 @@ from typing import Dict, List, Optional, Sequence
 
 import openml
 import pandas as pd
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 from app.database.models import KnowledgeBaseEntry, KnowledgeBaseRepository
 from app.utils.utils import (
@@ -89,18 +95,22 @@ class KnowledgeBuilderService:
             console=None,  # Use default console
             refresh_per_second=4,  # Reduce refresh rate
         ) as progress:
-            
+
             # Main progress task
             main_task = progress.add_task("Building knowledge base...", total=100)
-            
+
             if destructive_rebuild:
-                progress.update(main_task, description="Clearing existing knowledge base...")
+                progress.update(
+                    main_task, description="Clearing existing knowledge base..."
+                )
                 cleared = self.repository.clear_all_entries()
                 logger.warning("Cleared knowledge base: %s entries removed", cleared)
                 progress.update(main_task, advance=5)
 
             # Get all classification tasks from OpenML
-            progress.update(main_task, description="Fetching classification tasks from OpenML...")
+            progress.update(
+                main_task, description="Fetching classification tasks from OpenML..."
+            )
             clf_tasks = with_retry(
                 lambda: openml.tasks.list_tasks(
                     output_format="dataframe",
@@ -116,17 +126,23 @@ class KnowledgeBuilderService:
             if limit_dataset_n is not None:
                 if len(grouped) > limit_dataset_n:
                     grouped = grouped.iloc[:limit_dataset_n]
-            
-            progress.update(main_task, advance=5, description="Processing dataset evaluations...")
+
+            progress.update(
+                main_task, advance=5, description="Processing dataset evaluations..."
+            )
 
             dataset_task_map: Dict[int, int] = {}
             total_datasets = len(grouped)
-            
+
             # Phase 1: Get evaluations for each dataset (30% of progress)
-            for i, (dataset_id, tasks) in enumerate(grouped.items()):  # pylint: disable=cell-var-from-loop
+            for i, (dataset_id, tasks) in enumerate(
+                grouped.items()
+            ):  # pylint: disable=cell-var-from-loop
                 try:
-                    progress.update(main_task, 
-                                  description=f"Processing dataset {i+1}/{total_datasets} (ID: {dataset_id})")
+                    progress.update(
+                        main_task,
+                        description=f"Processing dataset {i+1}/{total_datasets} (ID: {dataset_id})",
+                    )
 
                     def get_evaluations():  # pylint: disable=cell-var-from-loop
                         return openml.evaluations.list_evaluations(
@@ -144,7 +160,9 @@ class KnowledgeBuilderService:
                         )
                         continue
                     counts = (
-                        evals_df.groupby("task_id").size().reset_index(name="eval_count")
+                        evals_df.groupby("task_id")
+                        .size()
+                        .reset_index(name="eval_count")
                     )
                     if counts.empty:
                         logger.warning(
@@ -157,10 +175,10 @@ class KnowledgeBuilderService:
                         ["eval_count", "task_id"], ascending=[False, True]
                     )
                     dataset_task_map[dataset_id] = int(counts.iloc[0]["task_id"])
-                    
+
                     # Update progress (30% of total for this phase)
-                    progress.update(main_task, advance=30/total_datasets)
-                    
+                    progress.update(main_task, advance=30 / total_datasets)
+
                 except Exception as e:  # pylint: disable=broad-exception-caught
                     logger.error(
                         "Failed to get evaluations for dataset %s with tasks %s: %s",
@@ -173,11 +191,15 @@ class KnowledgeBuilderService:
             # Phase 2: Process each dataset task (50% of progress)
             all_leaderboards: List[pd.DataFrame] = []
             total_tasks = len(dataset_task_map)
-            
-            for i, (dataset_id, task_id) in enumerate(dataset_task_map.items()):  # pylint: disable=cell-var-from-loop
-                progress.update(main_task, 
-                              description=f"Building leaderboard {i+1}/{total_tasks} (Dataset: {dataset_id})")
-                
+
+            for i, (dataset_id, task_id) in enumerate(
+                dataset_task_map.items()
+            ):  # pylint: disable=cell-var-from-loop
+                progress.update(
+                    main_task,
+                    description=f"Building leaderboard {i+1}/{total_tasks} (Dataset: {dataset_id})",
+                )
+
                 frames = []
                 for m in metrics:  # pylint: disable=cell-var-from-loop
                     try:
@@ -249,7 +271,9 @@ class KnowledgeBuilderService:
 
                 per_family = per_setup.sort_values(
                     "value", ascending=False
-                ).drop_duplicates(subset=["data_id", "task_id", "metric", "algo_family"])
+                ).drop_duplicates(
+                    subset=["data_id", "task_id", "metric", "algo_family"]
+                )
 
                 wide = per_family.pivot_table(
                     index=[
@@ -287,7 +311,9 @@ class KnowledgeBuilderService:
                 )
                 for rec in topn:
                     metrics_dict = {
-                        m: float(rec[m]) for m in metrics if m in rec and pd.notna(rec[m])
+                        m: float(rec[m])
+                        for m in metrics
+                        if m in rec and pd.notna(rec[m])
                     }
                     entry = KnowledgeBaseEntry(
                         run_id=int(rec.get("run_id", 0)),  # Use 0 if run_id is missing
@@ -302,12 +328,14 @@ class KnowledgeBuilderService:
                         meta_vector=None,
                     )
                     self.repository.insert_entry(entry)
-                
+
                 # Update progress (50% of total for this phase)
-                progress.update(main_task, advance=50/total_tasks)
-            
+                progress.update(main_task, advance=50 / total_tasks)
+
             # Final completion
-            progress.update(main_task, completed=100, description="Knowledge base update completed!")
+            progress.update(
+                main_task, completed=100, description="Knowledge base update completed!"
+            )
 
     def get_knowledge_base_stats(self) -> List[KnowledgeBaseEntry]:
         try:
