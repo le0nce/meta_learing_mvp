@@ -24,8 +24,6 @@ class TestConstants(unittest.TestCase):
         """Test ADDITIONAL_METRICS constant."""
         expected_metrics = [
             "predictive_accuracy",
-            "log_loss",
-            "balanced_accuracy",
         ]
         self.assertEqual(ADDITIONAL_METRICS, expected_metrics)
         self.assertIsInstance(ADDITIONAL_METRICS, list)

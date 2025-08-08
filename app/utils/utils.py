@@ -5,8 +5,6 @@ import time
 DEFAULT_PRIMARY_METRIC = "area_under_roc_curve"
 ADDITIONAL_METRICS = [
     "predictive_accuracy",
-    "log_loss",
-    "balanced_accuracy",
 ]
 
 BASE_CLASS_WHITELIST = {

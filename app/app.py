@@ -190,26 +190,42 @@ class MetaLearningCLI:
         )
 
     def _get_primary_metric_display(self, entry):
-        """Get primary metric name and score for display"""
+        """Get all metrics formatted for display"""
         if not entry.metrics:
-            return "N/A", "N/A"
+            return "No metrics", "N/A"
 
-        preferred_metrics = [
-            "predictive_accuracy",
-            "area_under_roc_curve",
-            "f_measure",
-        ]
-
-        metric_name = None
-        for pref_metric in preferred_metrics:
-            if pref_metric in entry.metrics:
-                metric_name = pref_metric
-                break
-
-        if not metric_name:
+        # Create a formatted list of all metrics
+        metric_list = []
+        for metric_name, metric_value in entry.metrics.items():
+            metric_list.append(f"{metric_name}: {metric_value:.4f}")
+        
+        # Join all metrics with newlines for display
+        metrics_display = "\n".join(metric_list)
+        
+        # For the table display, we'll show a summary
+        num_metrics = len(entry.metrics)
+        if num_metrics == 1:
+            # If only one metric, show it directly
             metric_name = next(iter(entry.metrics.keys()))
-
-        return metric_name, f"{entry.metrics[metric_name]:.4f}"
+            return metric_name, f"{entry.metrics[metric_name]:.4f}"
+        else:
+            # If multiple metrics, show count and primary metric
+            preferred_metrics = [
+                "predictive_accuracy",
+                "area_under_roc_curve", 
+                "f_measure",
+            ]
+            
+            primary_metric = None
+            for pref_metric in preferred_metrics:
+                if pref_metric in entry.metrics:
+                    primary_metric = pref_metric
+                    break
+            
+            if not primary_metric:
+                primary_metric = next(iter(entry.metrics.keys()))
+            
+            return f"({num_metrics} metrics)", f"{entry.metrics[primary_metric]:.4f}"
 
     def _show_pagination_controls(self, current_page: int, total_pages: int):
         """Show pagination controls and get user choice"""
@@ -281,8 +297,11 @@ class MetaLearningCLI:
 
             # Display metrics
             if entry.metrics:
+                # Add a separator for metrics section
+                details.add_row("", "")  # Empty row for spacing
+                details.add_row("METRICS", "", style="bold yellow")
                 for metric_name, metric_value in entry.metrics.items():
-                    details.add_row(f"Metric: {metric_name}", f"{metric_value:.6f}")
+                    details.add_row(f"  {metric_name}", f"{metric_value:.6f}")
             else:
                 details.add_row("Metrics", "No metrics available")
 

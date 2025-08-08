@@ -25,7 +25,7 @@ Performance results when algorithms run on datasets, producing accuracy scores a
 ### 🏆 Metrics
 Performance measures including:
 - **Primary**: `area_under_roc_curve` (main success measure)
-- **Additional**: `predictive_accuracy`, `log_loss`, `balanced_accuracy`
+- **Additional**: `predictive_accuracy`
 
 ## How the Knowledge Builder Works
 
