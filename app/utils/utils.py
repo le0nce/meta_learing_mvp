@@ -71,6 +71,10 @@ def with_retry(
 
 
 def parse_algo_class(flow_name: str) -> str:
-    cls = flow_name.split(".")[-1]
-    cls = cls.split(" ")[0]
+    # First split by space to separate the class name from parameters
+    class_part = flow_name.split(" ")[0]
+    # Then get the class name from the module path
+    cls = class_part.split(".")[-1]
+    # Remove any parameters in parentheses
+    cls = cls.split("(")[0]
     return cls

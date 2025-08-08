@@ -116,7 +116,9 @@ class MetaLearningCLI:
                     current_page = max(0, current_page - 1)
                     continue
 
-                self._display_entries_table(entries, current_page, total_pages, total_entries)
+                self._display_entries_table(
+                    entries, current_page, total_pages, total_entries
+                )
                 choice = self._show_pagination_controls(current_page, total_pages)
 
                 if choice == "n" and current_page < total_pages - 1:
@@ -164,9 +166,7 @@ class MetaLearningCLI:
     def _add_entry_row(self, table: Table, entry) -> None:
         """Add a single entry row to the table"""
         created_str = (
-            entry.created_at.strftime("%Y-%m-%d %H:%M")
-            if entry.created_at
-            else "N/A"
+            entry.created_at.strftime("%Y-%m-%d %H:%M") if entry.created_at else "N/A"
         )
 
         primary_metric, primary_score = self._get_primary_metric_display(entry)
@@ -233,7 +233,9 @@ class MetaLearningCLI:
         choice = Prompt.ask("Action", choices=choices, default="q").lower()
         return choice
 
-    def _show_entry_details(self, entries: list) -> None:  # pylint: disable=too-many-branches
+    def _show_entry_details(
+        self, entries: list
+    ) -> None:  # pylint: disable=too-many-branches
         """Show detailed information for a specific entry"""
         try:
             entry_id = IntPrompt.ask(

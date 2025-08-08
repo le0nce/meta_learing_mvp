@@ -105,6 +105,7 @@ class KnowledgeBuilderService:
         dataset_task_map: Dict[int, int] = {}
         for dataset_id, tasks in grouped.items():  # pylint: disable=cell-var-from-loop
             try:
+
                 def get_evaluations():  # pylint: disable=cell-var-from-loop
                     return openml.evaluations.list_evaluations(
                         function=primary_metric,
@@ -116,7 +117,8 @@ class KnowledgeBuilderService:
                 if evals_df is None or evals_df.empty:
                     logger.warning(
                         "No evaluations found for dataset %s with tasks %s",
-                        dataset_id, tasks
+                        dataset_id,
+                        tasks,
                     )
                     continue
                 counts = (
@@ -125,7 +127,8 @@ class KnowledgeBuilderService:
                 if counts.empty:
                     logger.warning(
                         "No evaluations found for dataset %s with tasks %s",
-                        dataset_id, tasks
+                        dataset_id,
+                        tasks,
                     )
                     continue
                 counts = counts.sort_values(
@@ -135,15 +138,21 @@ class KnowledgeBuilderService:
             except Exception as e:  # pylint: disable=broad-exception-caught
                 logger.error(
                     "Failed to get evaluations for dataset %s with tasks %s: %s",
-                    dataset_id, tasks, e
+                    dataset_id,
+                    tasks,
+                    e,
                 )
                 continue
 
         all_leaderboards: List[pd.DataFrame] = []
-        for dataset_id, task_id in dataset_task_map.items():  # pylint: disable=cell-var-from-loop
+        for (
+            dataset_id,
+            task_id,
+        ) in dataset_task_map.items():  # pylint: disable=cell-var-from-loop
             frames = []
             for m in metrics:  # pylint: disable=cell-var-from-loop
                 try:
+
                     def get_metric_evaluations():  # pylint: disable=cell-var-from-loop
                         return openml.evaluations.list_evaluations(
                             function=m,
@@ -155,7 +164,8 @@ class KnowledgeBuilderService:
                     if df is None or df.empty:
                         logger.warning(
                             "No evaluations found for task %s with metric %s",
-                            task_id, m
+                            task_id,
+                            m,
                         )
                         continue
                     df = df[
@@ -175,18 +185,23 @@ class KnowledgeBuilderService:
                 except Exception as e:  # pylint: disable=broad-exception-caught
                     logger.error(
                         "Failed to get evaluations for task %s with metric %s: %s",
-                        task_id, m, e
+                        task_id,
+                        m,
+                        e,
                     )
                     continue
             if not frames:
                 continue
 
             evals_long = pd.concat(frames, ignore_index=True)
-            evals_long = evals_long[evals_long["flow_name"].apply(self._is_base_learner)]
+            evals_long = evals_long[
+                evals_long["flow_name"].apply(self._is_base_learner)
+            ]
             if evals_long.empty:
                 logger.warning(
                     "No valid base learners found for task %s in dataset %s",
-                    task_id, dataset_id
+                    task_id,
+                    dataset_id,
                 )
                 continue
 
@@ -227,7 +242,8 @@ class KnowledgeBuilderService:
             if wide["algo_family"].nunique() < min_algorithms_per_dataset:
                 logger.warning(
                     "Not enough algorithms for dataset %s with task %s",
-                    dataset_id, task_id
+                    dataset_id,
+                    task_id,
                 )
                 continue
 
