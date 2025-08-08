@@ -122,13 +122,31 @@ class MetaLearningCLI:
                 # Add rows
                 for entry in entries:
                     created_str = entry.created_at.strftime("%Y-%m-%d %H:%M") if entry.created_at else "N/A"
+                    
+                    # Get primary metric for display (choose first metric or a specific one)
+                    primary_metric = "N/A"
+                    primary_score = "N/A"
+                    if entry.metrics:
+                        # Try to get a common metric first, otherwise use the first one
+                        preferred_metrics = ['predictive_accuracy', 'area_under_roc_curve', 'f_measure']
+                        metric_name = None
+                        for pref_metric in preferred_metrics:
+                            if pref_metric in entry.metrics:
+                                metric_name = pref_metric
+                                break
+                        if not metric_name:
+                            metric_name = next(iter(entry.metrics.keys()))
+                        
+                        primary_metric = metric_name
+                        primary_score = f"{entry.metrics[metric_name]:.4f}"
+                    
                     table.add_row(
                         str(entry.id) if entry.id else "N/A",
                         str(entry.run_id),
                         entry.flow_name[:30] + "..." if len(entry.flow_name) > 30 else entry.flow_name,
                         entry.data_name[:20] + "..." if len(entry.data_name) > 20 else entry.data_name,
-                        entry.eval_metric,
-                        f"{entry.eval_value:.4f}",
+                        primary_metric,
+                        primary_score,
                         created_str
                     )
                 
@@ -211,10 +229,16 @@ class MetaLearningCLI:
             details.add_row("Setup ID", str(entry.setup_id))
             details.add_row("Flow ID", str(entry.flow_id))
             details.add_row("Algorithm (Flow)", entry.flow_name)
+            details.add_row("Algorithm Family", entry.algo_family)
             details.add_row("Data ID", str(entry.data_id))
             details.add_row("Dataset", entry.data_name)
-            details.add_row("Evaluation Metric", entry.eval_metric)
-            details.add_row("Evaluation Score", f"{entry.eval_value:.6f}")
+            
+            # Display metrics
+            if entry.metrics:
+                for metric_name, metric_value in entry.metrics.items():
+                    details.add_row(f"Metric: {metric_name}", f"{metric_value:.6f}")
+            else:
+                details.add_row("Metrics", "No metrics available")
             
             if entry.meta_vector:
                 vector_info = f"[{len(entry.meta_vector)} dimensions]"

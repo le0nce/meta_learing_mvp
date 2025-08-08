@@ -20,10 +20,10 @@ class KnowledgeBaseEntry:
     setup_id: int
     flow_id: int
     flow_name: str
+    algo_family: str
     data_id: int
     data_name: str
-    eval_metric: str
-    eval_value: float
+    metrics: dict
     meta_vector: Optional[List[float]] = None  # Latent space vector representation can be calculated later for performance reasons
     id: Optional[int] = None
     created_at: Optional[datetime] = None
@@ -38,10 +38,10 @@ class KnowledgeBaseEntry:
             'setup_id': self.setup_id,
             'flow_id': self.flow_id,
             'flow_name': self.flow_name,
+            'algo_family': self.algo_family,
             'data_id': self.data_id,
             'data_name': self.data_name,
-            'eval_metric': self.eval_metric,
-            'eval_value': self.eval_value,
+            'metrics': self.metrics,
             'meta_vector': self.meta_vector,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
@@ -80,22 +80,24 @@ class KnowledgeBaseRepository:
                 
                 # Serialize meta_vector as JSON if it exists
                 meta_vector_json = json.dumps(entry.meta_vector) if entry.meta_vector else None
+                # Serialize metrics as JSON
+                metrics_json = json.dumps(entry.metrics) if entry.metrics else "{}"
                 
                 cursor.execute("""
                     INSERT INTO knowledge_base 
-                    (run_id, task_id, setup_id, flow_id, flow_name, data_id, data_name, 
-                     eval_metric, eval_value, meta_vector)
+                    (run_id, task_id, setup_id, flow_id, flow_name, algo_family, data_id, data_name, 
+                     metrics, meta_vector)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (entry.run_id, entry.task_id, entry.setup_id, entry.flow_id, 
-                      entry.flow_name, entry.data_id, entry.data_name, entry.eval_metric,
-                      entry.eval_value, meta_vector_json))
+                      entry.flow_name, entry.algo_family, entry.data_id, entry.data_name, 
+                      metrics_json, meta_vector_json))
                 
                 conn.commit()
                 entry_id = cursor.lastrowid
                 
                 self.logger.info(
-                    "Inserted knowledge base entry with ID %s (run_id: %s, flow: %s, eval_value: %s)", 
-                    entry_id, entry.run_id, entry.flow_name, entry.eval_value
+                    "Inserted knowledge base entry with ID %s (run_id: %s, flow: %s, algo_family: %s)", 
+                    entry_id, entry.run_id, entry.flow_name, entry.algo_family
                 )
                 
                 return entry_id
@@ -120,8 +122,8 @@ class KnowledgeBaseRepository:
                 cursor = conn.cursor()
                 
                 query = """
-                    SELECT id, run_id, task_id, setup_id, flow_id, flow_name, 
-                           data_id, data_name, eval_metric, eval_value, meta_vector,
+                    SELECT id, run_id, task_id, setup_id, flow_id, flow_name, algo_family,
+                           data_id, data_name, metrics, meta_vector,
                            created_at, updated_at
                     FROM knowledge_base 
                     ORDER BY created_at DESC
@@ -222,6 +224,14 @@ class KnowledgeBaseRepository:
             except json.JSONDecodeError:
                 self.logger.warning("Failed to parse meta_vector JSON: %s", row[10])
         
+        # Parse metrics from JSON
+        metrics = {}
+        if row[9]:  # metrics
+            try:
+                metrics = json.loads(row[9])
+            except json.JSONDecodeError:
+                self.logger.warning("Failed to parse metrics JSON: %s", row[9])
+        
         return KnowledgeBaseEntry(
             id=row[0],
             run_id=row[1],
@@ -229,10 +239,10 @@ class KnowledgeBaseRepository:
             setup_id=row[3],
             flow_id=row[4],
             flow_name=row[5],
-            data_id=row[6],
-            data_name=row[7],
-            eval_metric=row[8],
-            eval_value=row[9],
+            algo_family=row[6],
+            data_id=row[7],
+            data_name=row[8],
+            metrics=metrics,
             meta_vector=meta_vector,
             created_at=created_at,
             updated_at=updated_at

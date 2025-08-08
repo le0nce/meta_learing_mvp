@@ -54,10 +54,10 @@ class DatabaseConnection:
                         setup_id INTEGER NOT NULL,
                         flow_id INTEGER NOT NULL,
                         flow_name TEXT NOT NULL,
+                        algo_family TEXT NOT NULL,
                         data_id INTEGER NOT NULL,
                         data_name TEXT NOT NULL,
-                        eval_metric TEXT NOT NULL,
-                        eval_value REAL NOT NULL,
+                        metrics TEXT NOT NULL,  -- JSON serialized metrics dict
                         meta_vector TEXT,  -- JSON serialized vector, optional
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -86,8 +86,8 @@ class DatabaseConnection:
                 """)
                 
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_eval_value 
-                    ON knowledge_base(eval_value)
+                    CREATE INDEX IF NOT EXISTS idx_algo_family 
+                    ON knowledge_base(algo_family)
                 """)
                 
                 # Create trigger to update updated_at timestamp

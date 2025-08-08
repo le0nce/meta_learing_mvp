@@ -4,11 +4,13 @@ Service for building knowledge base from OpenML datasets
 """
 
 import logging
-from typing import List
+import pandas as pd
+from typing import Dict, List, Optional, Sequence
 import numpy as np
 import openml
 
 from app.database.models import KnowledgeBaseRepository, KnowledgeBaseEntry
+from app.utils.utils import ADDITIONAL_METRICS, DEFAULT_PRIMARY_METRIC, parse_algo_class, with_retry
 
 class KnowledgeBuilderService:
     """Service for building knowledge base from OpenML datasets"""
@@ -51,200 +53,157 @@ class KnowledgeBuilderService:
 
         return True
 
-    def update_knowledge_base(self, evaluation_metrics: str = 'predictive_accuracy', store_top_n: int = 1, limit_dataset_n: int = None) -> None:
-        """
-        Update knowledge base with fresh data from OpenML
-        WARNING: This will clear ALL existing knowledge base entries first!
-        
-        Args:
-            evaluation_metrics: Evaluation metric to use for ranking
-            store_top_n: Number of top evaluations to store per dataset
-            limit_dataset_n: Maximum number of datasets to process
-        """
-        self.logger.info("Starting knowledge base update - WARNING: This will clear all existing entries!")
-        
-        # Clear existing knowledge base entries first
-        try:
-            cleared_count = self.repository.clear_all_entries()
-            self.logger.info(f"Cleared {cleared_count} existing entries from knowledge base")
-        except Exception as e:
-            self.logger.error(f"Failed to clear existing entries: {e}")
-            raise
-        
-        # 1. Load all classification tasks from OpenML
-        clf_tasks = openml.tasks.list_tasks(output_format="dataframe", task_type=openml.tasks.TaskType.SUPERVISED_CLASSIFICATION)
+    def update_knowledge_base(
+        self,
+        *,
+        primary_metric: str = DEFAULT_PRIMARY_METRIC,
+        extra_metrics: Optional[Sequence[str]] = tuple(ADDITIONAL_METRICS),
+        store_top_n: int = 1,
+        limit_dataset_n: Optional[int] = 10,
+        dataset_sample_seed: int = 42,
+        min_algorithms_per_dataset: int = 5,
+        include_ensembles: bool = True,
+        destructive_rebuild: bool = True,
+    ) -> None:
+        logger = self.logger
+        metrics = [primary_metric] + [m for m in (extra_metrics or []) if m != primary_metric]
 
-        # 2. Drop tasks without dataset id (edge case)
-        clf_tasks = clf_tasks.dropna(subset=["did", "tid"])
+        if destructive_rebuild:
+            cleared = self.repository.clear_all_entries()
+            logger.warning(f"Cleared knowledge base: {cleared} entries removed")
 
-        # 3. Aggregate tasks by dataset id
+        # Get all classifiaction tasks from OpenML
+        clf_tasks = with_retry(
+            lambda: openml.tasks.list_tasks(
+                output_format='dataframe',
+                task_type=openml.tasks.TaskType.SUPERVISED_CLASSIFICATION,
+            ),
+            logger=logger
+        ).dropna(subset=["did", "tid"])
+
+        grouped = clf_tasks.groupby("did")["tid"].apply(list)
+
+        # Limit to a specific number of datasets if requested
         if limit_dataset_n is not None:
-            tasks_by_dataset = clf_tasks.groupby("did")["tid"].apply(list)[:limit_dataset_n]
-            self.logger.info(f"Limiting to {limit_dataset_n} datasets with classification tasks")
-        else:
-            tasks_by_dataset = clf_tasks.groupby("did")["tid"].apply(list)
-            self.logger.info("Processing all datasets with classification tasks")
+            rng = np.random.default_rng(dataset_sample_seed)
+            dids = grouped.index.to_numpy()
+            if len(dids) > limit_dataset_n:
+                picked = set(rng.choice(dids, size=limit_dataset_n, replace=False))
+                grouped = grouped.loc[grouped.index.isin(picked)]
         
-        self.logger.info(f"Found {len(tasks_by_dataset)} datasets with classification tasks.")
-
-        # 4. For each dataset, find the most popular supervised classification task
-        dataset_task_map = {}
-        for dataset_id, tasks in list(tasks_by_dataset.items()):
-            self.logger.info(f"Dataset {dataset_id} has {len(tasks)} classification tasks.")
+        dataset_task_map: Dict[int, int] = {}
+        for dataset_id, tasks in grouped.items():
             try:
-                evals_df = openml.evaluations.list_evaluations(
-                    function=evaluation_metrics,
-                    output_format='dataframe',
-                    tasks=tasks
+                evals_df = with_retry(
+                    lambda: openml.evaluations.list_evaluations(
+                        function=primary_metric,
+                        output_format='dataframe',
+                        tasks=tasks,
+                    ),
+                    logger=logger
                 )
-
-                # Check if we got any evaluations back
-                if evals_df.empty:
-                    self.logger.warning(f"No evaluations found for dataset {dataset_id} tasks {tasks}, skipping")
+                if evals_df is None or evals_df.empty:
+                    logger.warning(f"No evaluations found for dataset {dataset_id} with tasks {tasks}")
                     continue
-
-                # Count evaluations per task for this dataset
-                task_eval_counts = evals_df.groupby('task_id').size().reset_index(name='eval_count')
-                
-                # Check if we have any task evaluation counts
-                if task_eval_counts.empty:
-                    self.logger.warning(f"No task evaluation counts for dataset {dataset_id}, skipping")
+                counts = evals_df.groupby('task_id').size().reset_index(name='eval_count')
+                if counts.empty:
+                    logger.warning(f"No evaluations found for dataset {dataset_id} with tasks {tasks}")
                     continue
-                
-                # Find the task with the most evaluations
-                most_popular_task = task_eval_counts.loc[task_eval_counts['eval_count'].idxmax()]
-                
-                # Map dataset to its most popular task
-                dataset_task_map[dataset_id] = int(most_popular_task['task_id'])
-                self.logger.info(f"Most popular task for dataset {dataset_id}: {most_popular_task['task_id']} ({most_popular_task['eval_count']} evaluations)")
-            
+                counts = counts.sort_values(['eval_count', 'task_id'], ascending=[False, True])
+                dataset_task_map[dataset_id] = int(counts.iloc[0]['task_id'])
             except Exception as e:
-                self.logger.error(f"Error processing dataset {dataset_id}: {e}")
+                logger.error(f"Failed to get evaluations for dataset {dataset_id} with tasks {tasks}: {e}")
                 continue
-
-        # 5. For each most popular dataset supervised classification task, fetch top N evaluations from base learners only
+        
+        all_leaderboards: List[pd.DataFrame] = []
         for dataset_id, task_id in dataset_task_map.items():
-            self.logger.info(f"Fetching top evaluations for dataset {dataset_id}, task {task_id}")
-
-            try:
-                # Get all available evaluations for this task
-                task_evaluations = openml.evaluations.list_evaluations(
-                    function=evaluation_metrics,
-                    output_format='dataframe',
-                    tasks=[task_id]
-                )
-                
-                # Check if we got any evaluations back
-                if task_evaluations.empty:
-                    self.logger.warning(f"No evaluations found for task {task_id}, skipping")
-                    continue
-                
-                self.logger.info(f"Retrieved {len(task_evaluations)} evaluations for task {task_id}")
-                
-                # Filter for base learners only
-                base_learner_evaluations = task_evaluations[
-                    task_evaluations['flow_name'].apply(self._is_base_learner)
-                ]
-                
-                self.logger.info(f"After filtering for base learners: {len(base_learner_evaluations)} evaluations")
-                
-                if len(base_learner_evaluations) == 0:
-                    self.logger.warning(f"No base learner evaluations found for task {task_id}, skipping")
-                    continue
-
-                # Get top evaluations from base learners only
-                top_n_evaluation = base_learner_evaluations.nlargest(store_top_n, 'value')
-                self.logger.info(f"Top {store_top_n} base learner accuracy values: {top_n_evaluation['value'].tolist()}")
-
-                # Log the flow names of top performers
-                unique_flows = top_n_evaluation['flow_name'].unique()
-                self.logger.info(f"Top performing base learner flows: {list(unique_flows)}")
-                
-                # Process each run
-                for _, run in top_n_evaluation.iterrows():
-                    
-                    run_to_store = KnowledgeBaseEntry(
-                        run_id=run['run_id'],
-                        task_id=task_id,
-                        setup_id=run['setup_id'],
-                        flow_id=run['flow_id'],
-                        flow_name=run['flow_name'],
-                        data_id=dataset_id,
-                        data_name=run['data_name'],
-                        eval_metric=evaluation_metrics,
-                        eval_value=run['value'],
-                        meta_vector=None  # Placeholder for now, can be calculated later
+            frames = []
+            for m in metrics:
+                try:
+                    df = with_retry(
+                        lambda m=m: openml.evaluations.list_evaluations(
+                            function=m,
+                            output_format='dataframe',
+                            tasks=[task_id],
+                        ),
+                        logger=logger
                     )
-                    self.logger.info(f"Storing {run['flow_name']} run {run['run_id']} for dataset {dataset_id}")
-                    entry_id = self.repository.insert_entry(run_to_store)
-                    if entry_id:
-                        self.logger.info(f"Inserted entry with ID {entry_id} for run {run['run_id']}")
-                    else:
-                        self.logger.error(f"Failed to insert entry for run {run['run_id']}")
-                        
-            except Exception as e:
-                self.logger.error(f"Error processing task {task_id} for dataset {dataset_id}: {e}")
+                    if df is None or df.empty:
+                        logger.warning(f"No evaluations found for task {task_id} with metric {m}")
+                        continue
+                    df = df[["setup_id", "flow_id", "flow_name", "task_id", "data_id", "data_name", "value", "run_id"]].copy()
+                    df['metric'] = m
+                    frames.append(df)
+                except Exception as e:
+                    logger.error(f"Failed to get evaluations for task {task_id} with metric {m}: {e}")
+                    continue
+            if not frames:
                 continue
-        self.logger.info("Knowledge base update completed.")
-        
 
+            evals_long = pd.concat(frames, ignore_index=True)
+            evals_long = evals_long[evals_long['flow_name'].apply(lambda n: self._is_base_learner(n, include_ensembles))]
+            if evals_long.empty:
+                logger.warning(f"No valid base learners found for task {task_id} in dataset {dataset_id}")
+                continue
+
+            grp_cols = ["setup_id", "flow_id", "flow_name", "task_id", "data_id", "data_name", "metric"]
+            per_setup = evals_long.groupby(grp_cols, as_index=False)["value"].mean()
+            per_setup["algo_family"] = per_setup["flow_name"].map(parse_algo_class)
+
+            per_family = per_setup.sort_values("value", ascending=False).drop_duplicates(
+                subset=["data_id", "task_id", "metric", "algo_family"]
+            )
+
+            wide = per_family.pivot_table(
+                index=["data_id", "task_id", "data_name", "algo_family", "flow_id", "setup_id", "flow_name"],
+                columns="metric",
+                values="value",
+                aggfunc="first",
+            ).reset_index()
+
+            if primary_metric not in wide.columns:
+                continue
+            wide = wide.dropna(subset=[primary_metric])
+            if wide["algo_family"].nunique() < min_algorithms_per_dataset:
+                logger.warning(f"Not enough algorithms for dataset {dataset_id} with task {task_id}")
+                continue
+
+            all_leaderboards.append(wide)
+
+            topn = wide.sort_values(primary_metric, ascending=False).head(store_top_n).to_dict(orient='records')
+            for rec in topn:
+                metrics_dict = {m: float(rec[m]) for m in metrics if m in rec and pd.notna(rec[m])}
+                entry = KnowledgeBaseEntry(
+                    run_id=None,
+                    task_id=int(rec["task_id"]),
+                    setup_id=int(rec["setup_id"]),
+                    flow_id=int(rec["flow_id"]),
+                    flow_name=str(rec["flow_name"]),
+                    algo_family=str(rec["algo_family"]),
+                    data_id=int(rec["data_id"]),
+                    data_name=str(rec["data_name"]),
+                    metrics=metrics_dict,
+                    meta_vector=None,
+                )
+                self.repository.insert_entry(entry)
+    
     def get_knowledge_base_stats(self) -> List[KnowledgeBaseEntry]:
-        """
-        Get statistics of the knowledge base
-        
-        Returns:
-            List of KnowledgeBaseEntry objects with stats
-        """
         try:
-            entries: List[KnowledgeBaseEntry] = self.repository.get_all()
-            if not entries:
-                self.logger.info("Knowledge base is empty.")
-                return []
-
-            self.logger.info(f"Retrieved {len(entries)} entries from knowledge base.")
-            return entries
+            return self.repository.get_all()
         except Exception as e:
             self.logger.error(f"Failed to retrieve knowledge base stats: {e}")
             return []
-    
+
     def get_base_learner_summary(self) -> dict:
-        """
-        Get a summary of base learners in the knowledge base
-        
-        Returns:
-            Dictionary with summary statistics about base learners
-        """
         try:
             entries = self.repository.get_all()
             if not entries:
-                return {"total_entries": 0, "unique_algorithms": 0, "algorithms": []}
-            
-            # Count unique flow names (algorithms)
-            flow_names = [entry.flow_name for entry in entries]
-            unique_flows = list(set(flow_names))
-            
-            # Count entries per algorithm
-            flow_counts = {}
-            for flow_name in flow_names:
-                flow_counts[flow_name] = flow_counts.get(flow_name, 0) + 1
-            
-            # Sort by count
-            sorted_flows = sorted(flow_counts.items(), key=lambda x: x[1], reverse=True)
-            
-            summary = {
-                "total_entries": len(entries),
-                "unique_algorithms": len(unique_flows),
-                "algorithm_counts": dict(sorted_flows),
-                "most_common_algorithm": sorted_flows[0][0] if sorted_flows else None,
-                "datasets_covered": len(set(entry.data_id for entry in entries)),
-                "tasks_covered": len(set(entry.task_id for entry in entries))
-            }
-            
-            self.logger.info(f"Knowledge base contains {summary['total_entries']} entries from {summary['unique_algorithms']} unique base learners")
-            self.logger.info(f"Most common algorithm: {summary['most_common_algorithm']}")
-            
-            return summary
-            
+                return {"total_entries": 0, "unique_algorithms": 0, "algorithm_counts": {}, "most_common_algorithm": None, "datasets_covered": 0, "tasks_covered": 0}
+            algo_families = [getattr(e, "algo_family", None) for e in entries if getattr(e, "algo_family", None)]
+            counts: Dict[str, int] = {}
+            for fam in algo_families:
+                counts[fam] = counts.get(fam, 0) + 1
+            sorted_flows = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+            return {"total_entries": len(entries), "unique_algorithms": len(counts), "algorithm_counts": dict(sorted_flows), "most_common_algorithm": sorted_flows[0][0] if sorted_flows else None, "datasets_covered": len(set(e.data_id for e in entries)), "tasks_covered": len(set(e.task_id for e in entries))}
         except Exception as e:
-            self.logger.error(f"Failed to generate base learner summary: {e}")
             return {"error": str(e)}
